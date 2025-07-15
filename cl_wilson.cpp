@@ -910,7 +910,9 @@ void processResult(uint64_t p, uint64_t s0, uint64_t s1, uint32_t type, progData
 			for(uint32_t j=0; j<sd.grescount; ++j){
 				if(gres[j].p == p && gres[j].v == dq){
 					printf("p: %" PRIu64 " has matching result %+d\n", p, dq);				
-					fprintf(stderr,"p: %" PRIu64 " has matching result %+d\n", p, dq);				
+					fprintf(stderr,"p: %" PRIu64 " has matching result %+d\n", p, dq);
+					++sd.gresmatch;
+					gres[j].p = 0;				
 					match = true;
 					break;
 				}
@@ -1063,10 +1065,24 @@ void getResults(progData & pd, searchData & sd, sclHard hardware, workStatus & s
 		processResult(tp[j].p, residues[j].s0, residues[j].s1, tp[j].type, pd, sd, hardware, prps, gres);
 	}
 	
-	free(prps);
-	
-	if(sd.resultTest) free(gres);
-	
+	free(prps);	
+
+	if(sd.resultTest){	
+		if(sd.grescount != sd.gresmatch){
+			for(uint32_t j=0; j<sd.grescount; ++j){
+				if(gres[j].p){
+					fprintf(stderr,"error: result check failed! p: %" PRIu64 " was not found in results!\n", gres[j].p);
+					printf("error: result check failed! p: %" PRIu64 " was not found in results!\n", gres[j].p);
+				}
+			}
+			exit(EXIT_FAILURE);
+		}
+		else{
+			fprintf(stderr,"All results matched result file!\n");
+			printf("All results matched result file!\n");
+		}
+		free(gres);
+	}	
 	
 }
 
@@ -1971,6 +1987,8 @@ void resetData(searchData & sd, workStatus & st){
 	st.totalcount = 0;
 	sd.testResultPrime = 0;
 	sd.testResultValue = 0;
+	sd.grescount = 0;
+	sd.gresmatch = 0;
 }
 
 

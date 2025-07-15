@@ -43,6 +43,7 @@ typedef struct {
 	uint32_t resultcount;
 	uint32_t prpsremoved;
 	uint32_t grescount;
+	uint32_t gresmatch;
 	int32_t computeunits;
 	int32_t testResultValue;
 	bool write_state_a_next;
