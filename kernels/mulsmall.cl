@@ -1,0 +1,79 @@
+/* 
+	mulsmall.cl -- Bryan Little, Yves Gallot, Jul 2025
+
+	Wilson search OpenCL Kernel 
+	
+	multiply by prime^power for each prime <2^32
+	
+	these primes/powers are generated on CPU and compressed to ulongs
+	
+*/
+
+
+
+__kernel __attribute__ ((reqd_work_group_size(256, 1, 1))) void mulsmall(
+				__global ulong8 *g_tpdata,
+				__global ulong * g_smallprimes,
+				__global ulong2 * g_smallpowers,
+				__global ulong2 *g_grptotal,
+				const uint tpnum,
+				const uint pcnt )
+{
+	const uint gid = get_global_id(0);
+	const uint lid = get_local_id(0);
+	const uint gs = get_global_size(0);
+	__local ulong2 total[256];
+
+	// s0=p s1=q s2=one.s0 s3=one.s1 s4=r2.s0 s5=r2.s1 s6=residue.s0 s7=residue.s1
+	const ulong8 tp = g_tpdata[tpnum];
+	total[lid] = (ulong2)(tp.s2, tp.s3);		// set to one
+	bool first_iter = true;	
+
+	for(uint i = gid; i < pcnt; i+= gs){
+		ulong prime = g_smallprimes[i];
+		// .s0=exp, .s1=curBit
+		ulong2 power = g_smallpowers[i];
+		const ulong2 base = m2p_mul_r2( prime, (ulong2)(tp.s4, tp.s5), tp.s0, tp.s1);	// convert prime to montgomery form
+		ulong2 primepow;
+		if(power.s0 == 1){
+			primepow = base;
+		}
+		else{
+			ulong2 a = base;
+			while( power.s1 ){
+				a = m2p_square(a, tp.s0, tp.s1);
+				if(power.s0 & power.s1){
+					a = m2p_mul(a, base, tp.s0, tp.s1);
+				}
+				power.s1 >>= 1;
+			}
+			primepow = a;
+		}
+		if(first_iter){
+			first_iter = false;
+			total[lid] = primepow;
+		}
+		else{
+			total[lid] = m2p_mul(total[lid], primepow, tp.s0, tp.s1);
+		}		
+	}
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	for(uint s = 128; s > 0; s >>= 1){
+		if(lid < s){
+			total[lid] = m2p_mul(total[lid], total[lid+s], tp.s0, tp.s1);
+		}
+		barrier(CLK_LOCAL_MEM_FENCE);
+	}
+
+	if(lid == 0){
+		g_grptotal[get_group_id(0)] = total[0];
+	}
+
+}
+
+
+
+
+
