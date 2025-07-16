@@ -987,6 +987,9 @@ goodResult * readGoodResultFile(searchData & sd, workStatus & st){
 			if(p >= st.pmin && p < st.pmax){
 				gres[size++] = (goodResult){p, v};
 			}
+			else if(p >= st.pmax){
+				break;
+			}
 		}
 		else {
 			fprintf(stderr,"Error reading %s !!!\n",GOOD_RES_FILENAME);
