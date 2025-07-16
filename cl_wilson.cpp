@@ -43,10 +43,6 @@
 #include "putil.h"
 #include "cl_wilson.h"
 
-#define RESULT_FILENAME "results.txt"
-#define STATE_FILENAME_A "stateA.ckp"
-#define STATE_FILENAME_B "stateB.ckp"
-
 #if __LDBL_MANT_DIG__ < 64
 #error Long Double Mantissa is too small
 #endif
@@ -83,6 +79,7 @@ FILE *my_fopen(const char *filename, const char *mode){
 	boinc_resolve_filename(filename,resolved_name,sizeof(resolved_name));
 	return boinc_fopen(resolved_name,mode);
 }
+
 
 void cleanup(progData & pd){
 	sclReleaseMemObject(pd.d_primecount);
@@ -691,7 +688,7 @@ void writeResult(uint64_t p, int32_t b){
 }
 
 
-void processResult(uint64_t p, uint64_t s0, uint64_t s1, uint32_t type, progData & pd, searchData & sd, sclHard hardware, uint64_t * prps){
+void processResult(uint64_t p, uint64_t s0, uint64_t s1, uint32_t type, progData & pd, searchData & sd, sclHard hardware, uint64_t * prps, goodResult * gres){
 
 	mpz_t residue, psq, mp, a, b;
 	
@@ -874,16 +871,10 @@ void processResult(uint64_t p, uint64_t s0, uint64_t s1, uint32_t type, progData
 
 	uint64_t negquot = p-quot;
 	uint64_t smallest = (quot <= negquot) ? quot : negquot;
-	
-/*	// |w_p/p| < 1/50000 for testing with known good residue file
-	// see A SEARCH FOR WILSON PRIMES EDGAR COSTA, ROBERT GERBICZ, AND DAVID HARVEY
-	const double SPECIAL_THRESHOLD = 1.0/50000.0;
-	double wpp = (double)((long double)smallest / (long double)p);
-*/
 	const uint64_t SPECIAL_THRESHOLD = 1000;
 
 	if( quot == 0 ){
-		if(boinc_is_standalone()){
+		if(boinc_is_standalone() && !sd.resultTest){
 			printf("%" PRIu64 " is a Wilson prime\n", p);
 		}
 		writeResult(p, 0);
@@ -893,10 +884,9 @@ void processResult(uint64_t p, uint64_t s0, uint64_t s1, uint32_t type, progData
 			sd.testResultValue = 0;
 		}
 	}
-//	else if( wpp < SPECIAL_THRESHOLD ){
 	else if( smallest < SPECIAL_THRESHOLD ){
 		int32_t dq = (smallest == quot) ? quot : -((int32_t)negquot);
-		if(boinc_is_standalone()){
+		if(boinc_is_standalone() && !sd.resultTest){
 			printf("%" PRIu64 " is a Near-Wilson prime %+d\n", p, dq);
 		}
 		writeResult(p, dq);
@@ -908,15 +898,124 @@ void processResult(uint64_t p, uint64_t s0, uint64_t s1, uint32_t type, progData
 	}
 
 	sd.checksum += p + rem + quot;
+	
+	if(sd.resultTest){		
+		// |w_p/p| < 1/50000 for testing with known good result file
+		// see A SEARCH FOR WILSON PRIMES EDGAR COSTA, ROBERT GERBICZ, AND DAVID HARVEY
+		const double WPP_THRESHOLD = 1.0/50000.0;
+		double wpp = (double)((long double)smallest / (long double)p);
+		if( wpp < WPP_THRESHOLD ){
+			int32_t dq = (smallest == quot) ? quot : -((int32_t)negquot);
+			bool match = false;
+			for(uint32_t j=0; j<sd.grescount; ++j){
+				if(gres[j].p == p && gres[j].v == dq){
+					printf("p: %" PRIu64 " has matching result %+d\n", p, dq);				
+					fprintf(stderr,"p: %" PRIu64 " has matching result %+d\n", p, dq);				
+					match = true;
+					break;
+				}
+				else if(gres[j].p == p && gres[j].v != dq){
+					fprintf(stderr,"error: result check failed! p: %" PRIu64 " %d, result file is %d\n", p, dq, gres[j].v);
+					printf("error: result check failed! p: %" PRIu64 " %d, result file is %d\n", p, dq, gres[j].v);
+					exit(EXIT_FAILURE);			
+				}				
+			}
+			if(!match){
+				fprintf(stderr,"error: result check failed! p: %" PRIu64 " is not in result file!\n", p);
+				printf("error: result check failed! p: %" PRIu64 " is not in result file!\n", p);
+				exit(EXIT_FAILURE);			
+			}
+		}		
+	}
 
+}
+
+
+goodResult * readGoodResultFile(searchData & sd, workStatus & st){
+
+	FILE *file;
+	char line[256];
+	uint64_t sum = 0;
+	uint32_t count = 0;
+	uint32_t size = 0;
+	goodResult * gres = NULL;
+    
+	if((file = my_fopen(GOOD_RES_FILENAME,"r")) == NULL){
+		fprintf(stderr,"Cannot open %s !!!\n",GOOD_RES_FILENAME);
+		printf("Cannot open %s !!!\n",GOOD_RES_FILENAME);
+		exit(EXIT_FAILURE);		
+	}
+
+	while(fgets(line, sizeof(line), file)){
+		uint64_t p;
+		int32_t v;
+
+		if(sscanf(line, "%" SCNu64 " %" SCNd32, &p, &v) == 2){
+			sum += p + v;
+			if(p >= st.pmin && p < st.pmax){
+				++count;
+			}
+		}
+		else {
+			fprintf(stderr,"Error reading %s !!!\n",GOOD_RES_FILENAME);
+			printf("Error reading %s !!!\n",GOOD_RES_FILENAME);
+			exit(EXIT_FAILURE);	
+		}
+	}
+	
+	rewind(file);
+	
+	if(sum != 0x6659912234F44428){
+		fprintf(stderr,"Checksum error in %s !!!\n",GOOD_RES_FILENAME);
+		printf("Checksum error in %s !!!\n",GOOD_RES_FILENAME);
+		exit(EXIT_FAILURE);		
+	}
+	
+	gres = (goodResult *)malloc(count * sizeof(goodResult));
+	if( gres == NULL ){
+		fprintf(stderr,"malloc error, gres array\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	while(fgets(line, sizeof(line), file)){
+		uint64_t p;
+		int32_t v;
+
+		if(sscanf(line, "%" SCNu64 " %" SCNd32, &p, &v) == 2){
+			if(p >= st.pmin && p < st.pmax){
+				gres[size++] = (goodResult){p, v};
+			}
+		}
+		else {
+			fprintf(stderr,"Error reading %s !!!\n",GOOD_RES_FILENAME);
+			printf("Error reading %s !!!\n",GOOD_RES_FILENAME);
+			exit(EXIT_FAILURE);	
+		}
+	}
+
+	if(count != size){	
+		fprintf(stderr,"Error reading %s !!!\n",GOOD_RES_FILENAME);
+		printf("Error reading %s !!!\n",GOOD_RES_FILENAME);
+		exit(EXIT_FAILURE);			
+	}
+
+	fclose(file);
+	
+	printf("Read %u good results |w_p/p| < 1/50000 for search range from %s\n",count,GOOD_RES_FILENAME);	
+	
+	sd.grescount = count;
+	
+	return gres;
 }
 
 
 void getResults(progData & pd, searchData & sd, sclHard hardware, workStatus & st, cl_ulong2 *residues, testPrime *tp){
 
-	if(boinc_is_standalone()){
-		printf("Finalizing results on cpu\n");
-	}
+	goodResult * gres = NULL;
+	
+	if(boinc_is_standalone()) printf("Finalizing results on cpu\n");
+	
+	if(sd.resultTest) gres = readGoodResultFile(sd, st);		
 	
 	// read file of 2-PRPs
 	FILE *in;
@@ -961,9 +1060,14 @@ void getResults(progData & pd, searchData & sd, sclHard hardware, workStatus & s
 	}
 	// finalize each prime's result
 	for(uint32_t j=0; j<st.tpcount; ++j){
-		processResult(tp[j].p, residues[j].s0, residues[j].s1, tp[j].type, pd, sd, hardware, prps);
+		processResult(tp[j].p, residues[j].s0, residues[j].s1, tp[j].type, pd, sd, hardware, prps, gres);
 	}
+	
 	free(prps);
+	
+	if(sd.resultTest) free(gres);
+	
+	
 }
 
 
@@ -1020,7 +1124,7 @@ void finalizeResults(searchData & sd){
 }
 
 
-void setupSearch(workStatus & st){
+void setupSearch(searchData & sd, workStatus & st){
 
 	st.currp = 2;
 
@@ -1040,7 +1144,15 @@ void setupSearch(workStatus & st){
 		printf("range <= 10000000 is required\nuse -h for help\n");
 		fprintf(stderr, "range <= 10000000 is required\n");
 		exit(EXIT_FAILURE);
-	}	
+	}
+	
+	if(sd.resultTest){
+		if(st.pmax > 20000000000000ULL){
+			printf("pmax <= 2e13 is required when verifying results.\nuse -h for help\n");
+			fprintf(stderr, "pmax < 2e13 is required when verifying results.\n");
+			exit(EXIT_FAILURE);		
+		}
+	}		
 	
 	fprintf(stderr, "Starting search at p: %" PRIu64 "\nStopping search at P: %" PRIu64 "\n", st.pmin, st.pmax);
 	if(boinc_is_standalone()){
@@ -1299,8 +1411,6 @@ void getFractionDone(searchData & sd, workStatus & st, double partial){
 
 	double fd = (double)(currTotal / (long double)sd.maxtarget);
 	
-	if(fd > 1.0) fd = 1.0;
-
 	if(fd < 1.0){
 		boinc_fraction_done(fd);
 		if(boinc_is_standalone()){
@@ -1310,7 +1420,7 @@ void getFractionDone(searchData & sd, workStatus & st, double partial){
 }
 
 
-void cl_sieve( sclHard hardware, searchData & sd, workStatus & st ){
+void cl_wilson( sclHard hardware, searchData & sd, workStatus & st ){
 
 	progData pd = {};
 	testPrime *tp;
@@ -1318,7 +1428,7 @@ void cl_sieve( sclHard hardware, searchData & sd, workStatus & st ){
 	cl_int err = 0;
 
 	// setup kernel parameters
-	setupSearch(st);
+	setupSearch(sd,st);
 
 	// arrays used to transfer data from gpu during checkpoints
 	cl_ulong2 *residues;
@@ -1457,11 +1567,13 @@ void cl_sieve( sclHard hardware, searchData & sd, workStatus & st ){
 	}
 
 	if(boinc_is_standalone()){
-		printf("Testing %u primes.  There are %u 1 mod 3 primes, %u 5 mod 12 primes, and %u 11 mod 12 primes\n",st.tpcount,sd.tpcnt[0],sd.tpcnt[1],sd.tpcnt[2]);
+		printf("Testing %u primes.  There are %u type 0 (1 mod 3) primes, %u type 1 (5 mod 12) primes, and %u type 2 (11 mod 12) primes\n",
+			st.tpcount,sd.tpcnt[0],sd.tpcnt[1],sd.tpcnt[2]);
 		printf("Factorial targets are %" PRIu64 ", %" PRIu64 ", %" PRIu64 "\n",sd.typeTarget[0],sd.typeTarget[1],sd.typeTarget[2]);
 		printf("     Power limits are %" PRIu64 ", %" PRIu64 ", %" PRIu64 "\n",sd.powerLimit[0],sd.powerLimit[1],sd.powerLimit[2]);		
 	}
-	fprintf(stderr, "Testing %u primes.  There are %u 1 mod 3 primes, %u 5 mod 12 primes, and %u 11 mod 12 primes\n",st.tpcount,sd.tpcnt[0],sd.tpcnt[1],sd.tpcnt[2]);
+	fprintf(stderr, "Testing %u primes.  There are %u type 0 (1 mod 3) primes, %u type 1 (5 mod 12) primes, and %u type 2 (11 mod 12) primes\n",
+		st.tpcount,sd.tpcnt[0],sd.tpcnt[1],sd.tpcnt[2]);
 
 	pd.d_testprime = clCreateBuffer( hardware.context, CL_MEM_READ_WRITE, st.tpcount*sizeof(cl_ulong), NULL, &err );
 	if ( err != CL_SUCCESS ) {
@@ -1825,12 +1937,14 @@ void cl_sieve( sclHard hardware, searchData & sd, workStatus & st ){
 	boinc_end_critical_section();
 
 
-	fprintf(stderr,"Search complete. Results: %u, total power table primes generated %" PRIu64 ", removed %u PRPs\n", sd.resultcount, st.totalcount-sd.prpsremoved, sd.prpsremoved);
+	fprintf(stderr,"Search complete. Results: %u, total power table primes generated %" PRIu64 ", removed %u PRPs\n",
+		sd.resultcount, st.totalcount-sd.prpsremoved, sd.prpsremoved);
 
 	if(boinc_is_standalone()){
 		time(&totalf);
 		printf("Search finished in %d sec.\n", (int)totalf - (int)totals);
-		printf("results %u, total power table primes generated %" PRIu64 ", checksum %016" PRIX64 ", removed %u PRPs\n", sd.resultcount, st.totalcount-sd.prpsremoved, sd.checksum, sd.prpsremoved);
+		printf("results %u, total power table primes generated %" PRIu64 ", checksum %016" PRIX64 ", removed %u PRPs\n",
+			sd.resultcount, st.totalcount-sd.prpsremoved, sd.checksum, sd.prpsremoved);
 	}
 
 	free(tp);
@@ -1873,7 +1987,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 1239053554603ULL;
 	st.pmax = 1239053554604ULL;
 	printf("1239053554603 is a type 0 prime\n");
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 1 && sd.checksum == 0x00000240FAB1A752 && st.totalcount-sd.prpsremoved == 8257082014ULL
 		&& sd.testResultPrime == 1239053554603ULL && sd.testResultValue == -4 ){
 		printf("test case 1 passed.\n\n");
@@ -1890,7 +2004,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 1108967825921ULL;
 	st.pmax = 1108967825922ULL;
 	printf("1108967825921 is a type 1 prime\n");
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 1 && sd.checksum == 0x0000010233A2220D && st.totalcount-sd.prpsremoved == 10956003002ULL
 		&& sd.testResultPrime == 1108967825921ULL && sd.testResultValue == 12 ){
 		printf("test case 2 passed.\n\n");
@@ -1907,7 +2021,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 5609877309359ULL;
 	st.pmax = 5609877309360ULL;
 	printf("5609877309359 is a type 2 prime\n");
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 1 && sd.checksum == 0x00000A344D7D0F58 && st.totalcount-sd.prpsremoved == 101542897873ULL
 		&& sd.testResultPrime == 5609877309359ULL && sd.testResultValue == -6 ){	
 		printf("test case 3 passed.\n\n");
@@ -1924,7 +2038,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 16556218163369ULL;
 	st.pmax = 16556218163370ULL;
 	printf("16556218163369 is a type 1 prime\n");
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 1 && sd.checksum == 0x00000F0ECB80A0AB && st.totalcount-sd.prpsremoved == 147755473426ULL
 		&& sd.testResultPrime == 16556218163369ULL && sd.testResultValue == 2 ){	
 		printf("test case 4 passed.\n\n");
@@ -1941,7 +2055,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 200;
 	st.pmax = 564;
 	printf("Testing small iterations with Wilson prime 563\n");	
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 57 && sd.checksum == 0x00000000000080A3 && st.totalcount-sd.prpsremoved == 30
 		&& sd.testResultPrime == 563 && sd.testResultValue == 0 ){	
 		printf("test case 5 passed.\n\n");
@@ -1958,7 +2072,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 86000000;
 	st.pmax = 87467200;
 	printf("Testing large iterations with type 2 prime 87467099\n");	
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 1 && sd.checksum == 0x0000097C61AB0943 && st.totalcount-sd.prpsremoved == 2604536
 		&& sd.testResultPrime == 87467099 && sd.testResultValue == -2 ){	
 		printf("test case 6 passed.\n\n");
@@ -1975,7 +2089,7 @@ void run_test( sclHard hardware, searchData & sd, workStatus & st ){
 	st.pmin = 17524177394450ULL;
 	st.pmax = 17524177394618ULL;
 	printf("17524177394617 is a type 0 prime\n");	
-	cl_sieve(hardware, sd, st);
+	cl_wilson(hardware, sd, st);
 	if( sd.resultcount == 1 && sd.checksum == 0x00005B54B4CBBC47 && st.totalcount-sd.prpsremoved == 304620766446
 		&& sd.testResultPrime == 17524177394617 && sd.testResultValue == 256 ){	
 		printf("test case 7 passed.\n\n");

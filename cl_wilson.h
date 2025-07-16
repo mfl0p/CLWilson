@@ -1,6 +1,11 @@
 
 // cl_wilson.h
 
+#define RESULT_FILENAME "results.txt"
+#define STATE_FILENAME_A "stateA.ckp"
+#define STATE_FILENAME_B "stateB.ckp"
+#define GOOD_RES_FILENAME "goodWilsonResults.txt"
+
 const uint64_t maxp = 0xFFFFFFFFFFFFFFFF / 4;
 
 typedef struct {
@@ -8,6 +13,11 @@ typedef struct {
 	uint64_t pTarget;
 	uint32_t type;
 }testPrime;
+
+typedef struct {
+	uint64_t p;
+	int32_t v;
+}goodResult;
 
 typedef struct {
 	uint64_t pmin, pmax, currp, trickle, state_sum, totalcount;
@@ -32,10 +42,12 @@ typedef struct {
 	uint32_t numgroups;
 	uint32_t resultcount;
 	uint32_t prpsremoved;
+	uint32_t grescount;
 	int32_t computeunits;
 	int32_t testResultValue;
 	bool write_state_a_next;
 	bool test;
+	bool resultTest;
 	bool nvidia;
 }searchData;
 
@@ -56,6 +68,6 @@ typedef struct {
 	sclSoft iterate, clearn, clearresult, setup, getsegprps, mulsmall, mullarge, reduce, finda, findc, findu, clearacu;
 }progData;
 
-void cl_sieve( sclHard hardware, searchData & sd, workStatus & st );
+void cl_wilson( sclHard hardware, searchData & sd, workStatus & st );
 
 void run_test( sclHard hardware, searchData & sd, workStatus & st );

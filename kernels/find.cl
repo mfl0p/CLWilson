@@ -20,8 +20,8 @@ ulong isqrt(ulong n) {
 	ulong c = 0;
 
 	// d_n which starts at the highest power of four <= n
-	ulong d = 1ULL << 62;			// The second-to-top bit is set.
-						// Same as ((unsigned) INT32_MAX + 1) / 2.
+	ulong d = 1UL << 62;			// The second-to-top bit is set.
+						// Same as ((unsigned) INT64_MAX + 1) / 2.
 	while (d > n) {
 		d >>= 2;
 	}

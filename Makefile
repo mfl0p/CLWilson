@@ -5,7 +5,7 @@ LD = $(CC)
 .SUFFIXES: .o .c .h .cl .cpp
 
 VERSION_MAJOR := 0
-VERSION_MINOR := 1
+VERSION_MINOR := 2
 date := $(shell powershell.exe get-date -format FileDate)
 
 APP = CLWilson-win64-v$(VERSION_MAJOR).$(VERSION_MINOR)-$(date).exe

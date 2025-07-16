@@ -19,6 +19,7 @@ __kernel __attribute__ ((reqd_work_group_size(LSIZE, 1, 1))) void iterate(
 	__local ulong2 total[LSIZE];	
 	const uint i = start + group;
 	
+	// one testprime for each workgroup
 	if(i < stop){
 
 		// s0=p s1=q s2=one.s0 s3=one.s1 s4=r2.s0 s5=r2.s1 s6=target factorial for this type s7=target factorial for this prime

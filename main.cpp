@@ -32,12 +32,14 @@ void help()
 	printf("-P #	End prime prime to search P, range [-p, -P) exclusive, 5 <= -p <= p < -P <= %" PRIu64 "\n", maxp);
 	printf("	Required range is <= 10e6\n");
 	printf("-s 	Perform self test to verify proper operation of the program with the current GPU.\n");
+	printf("-r 	Verify all results (up to 2e13) where |w_p/p| < 1/50000 with known good file %s\n",GOOD_RES_FILENAME);
+	printf("	-s and -r are for use in standalone testing.\n");
 	printf("-h	Print this help\n");
         boinc_finish(EXIT_FAILURE);
 }
 
 
-static const char *short_opts = "p:P:sd:h";
+static const char *short_opts = "p:P:srd:h";
 
 static int parse_option(int opt, char *arg, const char *source, workStatus *st, searchData *sd)
 {
@@ -61,6 +63,12 @@ static int parse_option(int opt, char *arg, const char *source, workStatus *st, 
 
     case 'd':
       break;
+      
+    case 'r':
+      sd->resultTest = true;
+      fprintf(stderr,"Testing all results |w_p/p| < 1/50000 with known good result file %s\n",GOOD_RES_FILENAME);
+      printf("Testing all results |w_p/p| < 1/50000 with known good result file %s\n",GOOD_RES_FILENAME);
+      break;      
 
     case 'h':
       help();
@@ -312,7 +320,7 @@ int main(int argc, char *argv[])
 		run_test(hardware, sd, st);
 	}
 	else{
-		cl_sieve(hardware, sd, st);
+		cl_wilson(hardware, sd, st);
 	}
 
         sclReleaseClHard(hardware);

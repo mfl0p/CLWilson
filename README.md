@@ -30,7 +30,12 @@ command line options
 * -P #	End prime prime to search P, range [-p, -P) exclusive, 5 <= -p <= p < -P <= 4611686018427387903
 	Required range is <= 10e6
 * -s 	Perform self test to verify proper operation of the program with the current GPU.
-* -h		Print help.
+* -r 	Verify all results (up to 2e13) where |w_p/p| < 1/50000 with known good file goodWilsonResults.txt
+	-s and -r are for use in standalone testing.
+* -h	Print help.
+
+For known good result file info see:
+EDGAR COSTA, ROBERT GERBICZ, AND DAVID HARVEY. A SEARCH FOR WILSON PRIMES. 2014.
 
 Program gets the OpenCL GPU device index from BOINC.  To run stand-alone, the program will
 default to GPU 0 unless an init_data.xml is in the same directory with the format:
